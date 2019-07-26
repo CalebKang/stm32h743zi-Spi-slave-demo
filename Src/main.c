@@ -25,7 +25,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,8 +63,8 @@ enum {
   TRANSFER_ERROR
 };
 __IO uint32_t wTransferState = TRANSFER_WAIT;
-#define RX_SDATA_SIZE (10)
-#define TX_SDATA_SIZE (10)
+#define RX_SDATA_SIZE (20)
+#define TX_SDATA_SIZE (20)
 
 uint8_t txSData[TX_SDATA_SIZE] = {0x0A, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01};
 uint8_t rxSData[RX_SDATA_SIZE] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -109,6 +109,16 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+#if 0    
+    HAL_SPI_TransmitReceive_IT(&hspi1, &txSData[0], &rxSData[0], RX_SDATA_SIZE);
+    //HAL_SPI_Reload_TransmitReceive_IT(&hspi1, &txSData[9], &rxSData[9], 1);
+
+    while(wTransferState != TRANSFER_COMPLETE);
+
+    wTransferState = TRANSFER_WAIT;
+    memset(rxSData,0x00, RX_SDATA_SIZE);
+#endif
+    
 #if 1
     SPI_HandleTypeDef *hspi = &hspi1;
 
@@ -126,28 +136,38 @@ int main(void)
     hspi->TxXferCount = TX_SDATA_SIZE;
     hspi->TxXferSize  = TX_SDATA_SIZE;
 
+    MODIFY_REG(hspi->Instance->CR2, SPI_CR2_TSIZE, 1);
+    MODIFY_REG(hspi->Instance->CFG1, SPI_CFG1_UDRCFG, SPI_CFG1_UDRCFG_0);
     __HAL_SPI_ENABLE(hspi);
 
-    while ((initial_TxXferCount > 0UL) || (initial_RxXferCount > 0UL))
+    uint8_t temp_rxdr = 0x00;
+    while (/*(initial_TxXferCount > 0UL) || */(initial_RxXferCount > 0UL))
     {
-      /* check TXP flag */
-      if ((__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_TXP)) && (initial_TxXferCount > 0UL))
-      {
-        *((__IO uint8_t *)&hspi->Instance->TXDR) = rxSData[TX_SDATA_SIZE - hspi->TxXferCount];//*((uint8_t *)hspi->pTxBuffPtr);
-        hspi->pTxBuffPtr += sizeof(uint8_t);
-        hspi->TxXferCount--;
-        initial_TxXferCount = hspi->TxXferCount;
-      }
-
       /* Wait until RXWNE/FRLVL flag is reset */
       if (((hspi->Instance->SR & (SPI_FLAG_RXWNE | SPI_FLAG_FRLVL)) != 0UL) && (initial_RxXferCount > 0UL))
       {
         *((uint8_t *)hspi->pRxBuffPtr) = *((__IO uint8_t *)&hspi->Instance->RXDR);
+        temp_rxdr = *((uint8_t *)hspi->pRxBuffPtr);
         hspi->pRxBuffPtr += sizeof(uint8_t);
         hspi->RxXferCount--;
         initial_RxXferCount = hspi->RxXferCount;
       }
+#if 1
+      /* check TXP flag */
+      //if ((__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_TXP)) && (initial_TxXferCount > 0UL))
+      if ((__HAL_SPI_GET_FLAG(hspi, SPI_FLAG_UDR)) && (initial_TxXferCount > 0UL))
+      {
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET);
+        *((__IO uint8_t *)&hspi->Instance->TXDR) = temp_rxdr;//*((uint8_t *)hspi->pTxBuffPtr);
+        hspi->pTxBuffPtr += sizeof(uint8_t);
+        hspi->TxXferCount--;
+        initial_TxXferCount = hspi->TxXferCount;
+      }
+#endif
     }
+
+    memset(txSData,0x00, TX_SDATA_SIZE);
+    memset(rxSData,0x00, RX_SDATA_SIZE);
 
     __HAL_SPI_CLEAR_EOTFLAG(hspi);
     __HAL_SPI_CLEAR_TXTFFLAG(hspi);
@@ -156,8 +176,8 @@ int main(void)
     __HAL_SPI_DISABLE(hspi);
 
 #else
-    if(HAL_SPI_TransmitReceive(&hspi2, txSData, rxSData, RX_SDATA_SIZE, 2000) != HAL_OK)
-      Error_Handler();
+    //if(HAL_SPI_TransmitReceive(&hspi2, txSData, rxSData, RX_SDATA_SIZE, 2000) != HAL_OK)
+    //  Error_Handler();
 #endif
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
     /* USER CODE END WHILE */
@@ -230,9 +250,14 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
   wTransferState = TRANSFER_COMPLETE;
+}
+
+void HAL_SPI_Reload_RxCpltCallback(void)
+{
+  wTransferState = TRANSFER_ERROR;
 }
 /* USER CODE END 4 */
 
